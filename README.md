@@ -1,6 +1,6 @@
 # CoordRecorder
 
-Updated CoordRecorder for [GTBikeV](https://www.gtbikev.com/) course creation.
+Modified Version of CoordRecorder for [GTBikeV](https://www.gtbikev.com/) course creation.
 
 ## Features
 - Shows coordinates on top center of screen
