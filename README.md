@@ -1,6 +1,6 @@
-# CoordRecorder
+# CoordRecorder (Auto Saved "F9" when Player moved 3 meter from each last position)
 
-Modified Version of CoordRecorder for [GTBikeV](https://www.gtbikev.com/) course creation.
+Modified Version of CoordRecorder for [GTBikeV](https://www.gtbikev.com/) course creation by OldNapalm
 
 ## Features
 - Shows coordinates on top center of screen
