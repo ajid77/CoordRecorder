@@ -1,4 +1,4 @@
-# CoordRecorder (Auto Saved "F9" when Player moved 3 meter from each last position)
+# CoordRecorder (Auto Saved "F9" when Player moved 5 meter from each last position)
 
 Modified Version of CoordRecorder for [GTBikeV](https://www.gtbikev.com/) course creation by OldNapalm
 
