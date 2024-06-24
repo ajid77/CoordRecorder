@@ -13,29 +13,35 @@ namespace CoordinateRecorder
 {
     public class CoordRecorder : Script
     {
-        const int PANEL_WIDTH = 500;
-        const int PANEL_HEIGHT = 20;
-        Color backColor = Color.FromArgb(100, 255, 255, 255);
-        Color textColor = Color.Black;
-        const string CSV_FILE = @".\scripts\CoordRecorder_CSV.txt";
-        CultureInfo cInfo = CultureInfo.GetCultureInfo("en-US");
+        private const int PANEL_WIDTH = 600;
+        private const int PANEL_HEIGHT = 20;
+        private readonly Color backColor = Color.FromArgb(100, 255, 255, 255);
+        private readonly Color textColor = Color.Black;
+        private const string CSV_FILE = @".\scripts\CoordRecorder_CSV.txt";
+        private readonly CultureInfo cInfo = CultureInfo.GetCultureInfo("en-US");
 
-        ContainerElement container;
-        TextElement text;
-        Keys enableKey;
-        Keys saveKey;
-        bool enable;
-        bool routed = true;
-        int closeby;
-        int defaultCloseBy;
-        int modifiedCloseBy;
-        int checkpointRadius;
+        private ContainerElement container;
+        private TextElement text;
+        private Keys enableKey;
+        private Keys saveKey;
+        private bool enable;
+        private bool routed = false;
+        private int closeby;
+        private int defaultCloseBy;
+        private int modifiedCloseBy;
+        private int checkpointRadius;
 
-        Vector3 pos;
-        float heading;
-        List<Checkpoint> cpList = new List<Checkpoint>();
-        List<Blip> bList = new List<Blip>();
-        int next;
+        private Vector3 pos;
+        private float heading;
+        private List<Checkpoint> cpList = new List<Checkpoint>();
+        private List<Blip> bList = new List<Blip>();
+        private int next;
+
+        private Vector3 lastSavedPos;
+
+        // New variables to track distance
+        private float totalDistanceTraveled;
+        private Vector3 lastPosition;
 
         public CoordRecorder()
         {
@@ -46,9 +52,12 @@ namespace CoordinateRecorder
             Tick += OnTick;
             KeyDown += OnKeyDown;
             Aborted += OnAbort;
+
+            lastPosition = Vector3.Zero;
+            totalDistanceTraveled = 0.0f;
         }
 
-        void OnTick(object sender, EventArgs e)
+        private void OnTick(object sender, EventArgs e)
         {
             if (enable)
             {
@@ -57,63 +66,70 @@ namespace CoordinateRecorder
                 {
                     pos = player.Character.Position;
                     heading = player.Character.Heading;
-                    text.Caption = string.Format("next:{0} ({1}routed) closeby:{2} x:{3} y:{4} z:{5} heading:{6}", next, routed ? "" : "un", closeby,
-                                                 pos.X.ToString("0"), pos.Y.ToString("0"), pos.Z.ToString("0"), heading.ToString("0"));
+
+                    // Calculate the distance traveled since the last tick
+                    if (lastPosition != Vector3.Zero)
+                    {
+                        totalDistanceTraveled += World.GetDistance(lastPosition, pos);
+                    }
+                    lastPosition = pos;
+
+                    text.Caption = string.Format("next:{0} ({1}routed) closeby:{2} x:{3} y:{4} z:{5} heading:{6} distance:{7:F2}m",
+                                                 next, routed ? "" : "un", closeby,
+                                                 pos.X.ToString("0"), pos.Y.ToString("0"), pos.Z.ToString("0"), heading.ToString("0"),
+                                                 totalDistanceTraveled);
                     container.Draw();
+
+                    if (World.GetDistance(lastSavedPos, pos) > 5.0f)
+                    {
+                        WriteToFile();
+                    }
                 }
             }
         }
 
-        void OnKeyDown(object sender, KeyEventArgs e)
+        private void OnKeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == enableKey)
             {
-                if (e.Modifiers == Keys.Shift)
+                enable = !enable;
+                if (enable)
                 {
-                    if (Game.IsWaypointActive)
-                        Teleport(World.WaypointPosition);
-                    else
-                        Notification.Show("Select teleport destination");
-                }
-                else if (e.Modifiers == (Keys.Control | Keys.Shift))
-                {
-                    var last = GetLastCheckpoint();
-                    if (last != Vector3.Zero)
-                        Teleport(last);
-                }
-                else
-                {
-                    enable = !enable;
-                    if (enable)
+                    WriteToFile(); // Save the current position immediately when enabling the script
+
+                    if (GetLastCheckpoint() != Vector3.Zero)
                     {
-                        if (GetLastCheckpoint() != Vector3.Zero)
+                        var lines = File.ReadAllLines(CSV_FILE);
+                        for (int i = 9; i >= 0; i--)
                         {
-                            var lines = File.ReadAllLines(CSV_FILE);
-                            for (int i = 9; i >= 0; i--)
+                            if (lines.Length > i)
                             {
-                                if (lines.Length > i)
-                                {
-                                    var line = lines[lines.Length - i - 1].Split(',');
-                                    if (line.Length >= 3)
-                                    {
-                                        var cp = new Vector3(float.Parse(line[0], cInfo), float.Parse(line[1], cInfo), float.Parse(line[2], cInfo));
-                                        AddCheckpoint(cp, lines.Length - i, !(line.Length >= 6 && line[5] == "False"));
-                                    }
-                                }
-                            }
-                            for (int i = 0; i < lines.Length; i++)
-                            {
-                                var line = lines[i].Split(',');
+                                var line = lines[lines.Length - i - 1].Split(',');
                                 if (line.Length >= 3)
                                 {
-                                    var b = new Vector3(float.Parse(line[0], cInfo), float.Parse(line[1], cInfo), float.Parse(line[2], cInfo));
-                                    AddBlip(b, i + 1, !(line.Length >= 6 && line[5] == "False"));
+                                    var cp = new Vector3(float.Parse(line[0], cInfo), float.Parse(line[1], cInfo), float.Parse(line[2], cInfo));
+                                    AddCheckpoint(cp, lines.Length - i, !(line.Length >= 6 && line[5] == "False"));
                                 }
                             }
                         }
+                        for (int i = 0; i < lines.Length; i++)
+                        {
+                            var line = lines[i].Split(',');
+                            if (line.Length >= 3)
+                            {
+                                var b = new Vector3(float.Parse(line[0], cInfo), float.Parse(line[1], cInfo), float.Parse(line[2], cInfo));
+                                AddBlip(b, i + 1, !(line.Length >= 6 && line[5] == "False"));
+                            }
+                        }
                     }
-                    else
-                        DeleteWayPoints();
+
+                    // Reset the distance traveled when enabling the script
+                    lastPosition = pos;
+                    totalDistanceTraveled = 0.0f;
+                }
+                else
+                {
+                    DeleteWayPoints();
                 }
             }
             if (enable)
@@ -154,7 +170,7 @@ namespace CoordinateRecorder
             }
         }
 
-        void DeleteWayPoints()
+        private void DeleteWayPoints()
         {
             foreach (Checkpoint cp in cpList)
                 cp.Delete();
@@ -164,28 +180,28 @@ namespace CoordinateRecorder
             bList.Clear();
         }
 
-        void OnAbort(object sender, EventArgs e)
+        private void OnAbort(object sender, EventArgs e)
         {
             Tick -= OnTick;
             KeyDown -= OnKeyDown;
             DeleteWayPoints();
         }
 
-        void LoadSettings()
+        private void LoadSettings()
         {
             ScriptSettings settings = ScriptSettings.Load(@".\scripts\CoordRecorder.ini");
             enable = settings.GetValue("Core", "Enable", false);
             enableKey = (Keys)Enum.Parse(typeof(Keys), settings.GetValue("Core", "EnableKey", "F9"), true);
             saveKey = (Keys)Enum.Parse(typeof(Keys), settings.GetValue("Core", "SaveKey", "F10"), true);
-            defaultCloseBy = settings.GetValue("Core", "DefaultCloseBy", 20);
-            modifiedCloseBy = settings.GetValue("Core", "ModifiedCloseBy", 10);
-            checkpointRadius = settings.GetValue("Core", "CheckpointRadius", 10);
+            defaultCloseBy = settings.GetValue("Core", "DefaultCloseBy", 3);
+            modifiedCloseBy = settings.GetValue("Core", "ModifiedCloseBy", 3);
+            checkpointRadius = settings.GetValue("Core", "CheckpointRadius", 3);
             closeby = defaultCloseBy;
         }
 
-        void WriteToFile()
+        private void WriteToFile()
         {
-            if (World.GetDistance(GetLastCheckpoint(), pos) > modifiedCloseBy)
+            if (World.GetDistance(lastSavedPos, pos) > 5.0f)
             {
                 AddCheckpoint(pos, next, routed);
                 if (cpList.Count > 10)
@@ -202,6 +218,7 @@ namespace CoordinateRecorder
                         sw.WriteLine(line);
                     }
                     Notification.Show($"Coords {next} saved");
+                    lastSavedPos = pos; // Update the last saved position
                     next++;
                 }
                 catch
@@ -213,29 +230,34 @@ namespace CoordinateRecorder
                 Notification.Show($"Too close to coords {next - 1}");
         }
 
-        void Teleport(Vector3 location)
+        private void AddCheckpoint(Vector3 position, int number, bool routed)
         {
-            int i = 0;
-            float groundHeight;
-            location.Z = -50;
-            do
-            {
-                Wait(50);
-                groundHeight = World.GetGroundHeight(location);
-                if (groundHeight == 0)
-                    location.Z += 50;
-                else
-                    location.Z = groundHeight;
-                if (Game.Player.Character.CurrentVehicle != null)
-                    Game.Player.Character.CurrentVehicle.Position = location;
-                else
-                    Game.Player.Character.Position = location;
-                i++;
-            }
-            while (groundHeight == 0 && i < 20);
+            while (number > 99)
+                number -= 100;
+            CheckpointCustomIcon icon = new CheckpointCustomIcon(CheckpointCustomIconStyle.Number, Convert.ToByte(number));
+            Color cpColor;
+            if (routed)
+                cpColor = Color.Transparent; // Fully transparent
+            else
+                cpColor = Color.Transparent; // Fully transparent
+            cpList.Add(World.CreateCheckpoint(icon, position, position, checkpointRadius, cpColor));
         }
 
-        Vector3 GetLastCheckpoint()
+        private void AddBlip(Vector3 position, int number, bool routed)
+        {
+            while (number > 99)
+                number -= 100;
+            BlipColor bColor;
+            if (routed)
+                bColor = BlipColor.Yellow;
+            else
+                bColor = BlipColor.Red;
+            bList.Add(World.CreateBlip(position));
+            bList[bList.Count - 1].NumberLabel = number;
+            bList[bList.Count - 1].Color = bColor;
+        }
+
+        private Vector3 GetLastCheckpoint()
         {
             next = 1;
             if (File.Exists(CSV_FILE))
@@ -250,33 +272,6 @@ namespace CoordinateRecorder
                 }
             }
             return Vector3.Zero;
-        }
-
-        void AddCheckpoint(Vector3 position, int number, bool routed)
-        {
-            while (number > 99)
-                number -= 100;
-            CheckpointCustomIcon icon = new CheckpointCustomIcon(CheckpointCustomIconStyle.Number, Convert.ToByte(number));
-            Color cpColor;
-            if (routed)
-                cpColor = Color.GreenYellow;
-            else
-                cpColor = Color.OrangeRed;
-            cpList.Add(World.CreateCheckpoint(icon, position, position, checkpointRadius, cpColor));
-        }
-
-        void AddBlip(Vector3 position, int number, bool routed)
-        {
-            while (number > 99)
-                number -= 100;
-            BlipColor bColor;
-            if (routed)
-                bColor = BlipColor.Yellow;
-            else
-                bColor = BlipColor.Red;
-            bList.Add(World.CreateBlip(position));
-            bList[bList.Count - 1].NumberLabel = number;
-            bList[bList.Count - 1].Color = bColor;
         }
     }
 }
